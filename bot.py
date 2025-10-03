@@ -59,11 +59,35 @@ def get_guild_config(guild_id):
 def set_guild_config(guild_id, temp_channel_id, afk_channel_id):
     """Set configuration for a specific guild"""
     configs = load_guild_configs()
-    configs[str(guild_id)] = {
-        'temp_channel_id': temp_channel_id,
-        'afk_channel_id': afk_channel_id
-    }
+    if str(guild_id) not in configs:
+        configs[str(guild_id)] = {'stats': {}}
+    configs[str(guild_id)]['temp_channel_id'] = temp_channel_id
+    configs[str(guild_id)]['afk_channel_id'] = afk_channel_id
     save_guild_configs(configs)
+
+def increment_user_stat(guild_id, user_id, stat_type='visits'):
+    """Increment a stat for a user in a guild"""
+    configs = load_guild_configs()
+    guild_key = str(guild_id)
+    user_key = str(user_id)
+    
+    if guild_key not in configs:
+        configs[guild_key] = {'stats': {}}
+    if 'stats' not in configs[guild_key]:
+        configs[guild_key]['stats'] = {}
+    if user_key not in configs[guild_key]['stats']:
+        configs[guild_key]['stats'][user_key] = {'visits': 0, 'kidnaps': 0}
+    
+    configs[guild_key]['stats'][user_key][stat_type] = configs[guild_key]['stats'][user_key].get(stat_type, 0) + 1
+    save_guild_configs(configs)
+
+def get_guild_stats(guild_id):
+    """Get all stats for a guild"""
+    configs = load_guild_configs()
+    guild_key = str(guild_id)
+    if guild_key in configs and 'stats' in configs[guild_key]:
+        return configs[guild_key]['stats']
+    return {}
 
 # Load configs on startup
 guild_configs = load_guild_configs()
@@ -108,23 +132,45 @@ async def on_message(message):
     if message.author == bot.user:
         return
     
+    # Random lizard emoji reaction (3% chance)
+    if random.random() < 0.03:
+        try:
+            await message.add_reaction('🦎')
+        except:
+            pass  # Silently fail if can't react
+    
     # Check if bot is mentioned
     if bot.user in message.mentions:
         try:
-            # Read random line from lizard_bot_responses.txt
-            if os.path.exists('lizard_bot_responses.txt'):
-                with open('lizard_bot_responses.txt', 'r', encoding='utf-8') as f:
-                    lines = [line.strip() for line in f.readlines() if line.strip()]
-                
-                if lines:
-                    response = random.choice(lines)
-                    await message.reply(response)
-                    logger.info(f"Responded to mention from {message.author.display_name}: {response}")
+            # Check if "fact" is in the message
+            if 'fact' in message.content.lower():
+                # Read random fact from lizard_facts.txt
+                if os.path.exists('lizard_facts.txt'):
+                    with open('lizard_facts.txt', 'r', encoding='utf-8') as f:
+                        facts = [line.strip() for line in f.readlines() if line.strip()]
+                    
+                    if facts:
+                        fact = random.choice(facts)
+                        await message.reply(f"🦎 **Lizard Fact:** {fact}")
+                        logger.info(f"Sent fact to {message.author.display_name}: {fact}")
+                else:
+                    await message.reply("Fact file not found. Hiss.")
+                    logger.warning("lizard_facts.txt not found")
             else:
-                await message.reply("Hiss. (Response file not found)")
-                logger.warning("lizard_bot_responses.txt not found")
+                # Regular lizard response
+                if os.path.exists('lizard_bot_responses.txt'):
+                    with open('lizard_bot_responses.txt', 'r', encoding='utf-8') as f:
+                        lines = [line.strip() for line in f.readlines() if line.strip()]
+                    
+                    if lines:
+                        response = random.choice(lines)
+                        await message.reply(response)
+                        logger.info(f"Responded to mention from {message.author.display_name}: {response}")
+                else:
+                    await message.reply("Hiss. (Response file not found)")
+                    logger.warning("lizard_bot_responses.txt not found")
         except Exception as e:
-            logger.error(f"Error reading response file: {e}")
+            logger.error(f"Error handling mention: {e}")
             await message.reply("Hiss?")
     
     # Process commands
@@ -294,6 +340,11 @@ async def lizard_timer():
                     if members:
                         logger.info(f"[{guild.name}] Joining {channel.name} ({len(members)} users)")
                         await join_play_leave(channel)
+                        
+                        # Track stats for all users in the channel
+                        for member in members:
+                            increment_user_stat(guild.id, member.id, 'visits')
+                        
                         # Small delay between channels
                         await asyncio.sleep(2)
                 
@@ -333,6 +384,12 @@ async def lizard_command(ctx):
         
         try:
             await join_play_leave(sender_channel)
+            
+            # Track stats for all users in the channel
+            members = [m for m in sender_channel.members if not m.bot]
+            for member in members:
+                increment_user_stat(ctx.guild.id, member.id, 'visits')
+            
             await ctx.send(f"🦎 Lizard has visited {sender_channel.name}!")
             logger.info(f"Manual lizard command executed in {sender_channel.name} by {ctx.author.display_name}")
         except Exception as e:
@@ -355,9 +412,14 @@ async def lizard_command(ctx):
                 channel = channel_info['channel']
                 members = [m for m in channel.members if not m.bot]
                 
-                if members:
+                if members and channel.guild.id == ctx.guild.id:  # Only visit channels in current guild
                     logger.info(f"Manual timer trigger: Joining {channel.name} in {channel.guild.name}")
                     await join_play_leave(channel)
+                    
+                    # Track stats for all users
+                    for member in members:
+                        increment_user_stat(ctx.guild.id, member.id, 'visits')
+                    
                     visited_channels.append(channel.name)
                     await asyncio.sleep(2)
             
@@ -485,6 +547,9 @@ async def kidnap(ctx, member: discord.Member = None):
         await member.move_to(afk_channel)
         logger.info(f"Moved {member.display_name} to AFK channel")
         
+        # Track kidnap stat
+        increment_user_stat(ctx.guild.id, member.id, 'kidnaps')
+        
         # Move bot to AFK channel briefly
         await ctx.guild.me.move_to(afk_channel)
         await asyncio.sleep(1)
@@ -507,6 +572,59 @@ async def kidnap(ctx, member: discord.Member = None):
         # Cleanup
         if ctx.guild.voice_client:
             await ctx.guild.voice_client.disconnect(force=True)
+
+@bot.command(name='stats')
+async def stats(ctx):
+    """Show lizard visit statistics and top 3 leaderboard for this guild"""
+    guild_id = ctx.guild.id
+    stats_data = get_guild_stats(guild_id)
+    
+    if not stats_data:
+        await ctx.send("📊 No statistics yet! The lizard hasn't visited anyone in this server.")
+        return
+    
+    # Calculate totals
+    total_visits = sum(user_stats.get('visits', 0) for user_stats in stats_data.values())
+    total_kidnaps = sum(user_stats.get('kidnaps', 0) for user_stats in stats_data.values())
+    
+    info = []
+    info.append(f"**🦎 Lizard Statistics for {ctx.guild.name}**")
+    info.append("")
+    info.append(f"**Total Visits:** {total_visits}")
+    info.append(f"**Total Kidnaps:** {total_kidnaps}")
+    info.append(f"**Unique Users Tracked:** {len(stats_data)}")
+    info.append("")
+    
+    # Create leaderboard for visits
+    leaderboard = []
+    for user_id, user_stats in stats_data.items():
+        visits = user_stats.get('visits', 0)
+        kidnaps = user_stats.get('kidnaps', 0)
+        if visits > 0 or kidnaps > 0:
+            member = ctx.guild.get_member(int(user_id))
+            if member:
+                leaderboard.append({
+                    'member': member,
+                    'visits': visits,
+                    'kidnaps': kidnaps
+                })
+    
+    # Sort by visits (descending)
+    leaderboard.sort(key=lambda x: x['visits'], reverse=True)
+    
+    # Top 3 leaderboard
+    info.append("**🏆 Top 3 Most Visited:**")
+    if leaderboard:
+        for i, entry in enumerate(leaderboard[:3], 1):
+            medal = ["🥇", "🥈", "🥉"][i-1]
+            info.append(
+                f"{medal} **{entry['member'].display_name}** - "
+                f"{entry['visits']} visits, {entry['kidnaps']} kidnaps"
+            )
+    else:
+        info.append("No one yet!")
+    
+    await ctx.send("\n".join(info))
 
 @bot.command(name='timer')
 async def timer_status(ctx):

@@ -10,6 +10,9 @@ A Discord bot that randomly joins voice channels to play audio, with automatic u
 - **Auto-Mover**: Automatically moves users from a TEMP channel to AFK channel (configured per-guild)
 - **Manual Control**: Commands to manually trigger bot actions
 - **Kidnap Feature**: Drag users to AFK channel with audio playback
+- **Statistics Tracking**: Track visits and kidnaps per user, with top 3 leaderboard
+- **Interactive Responses**: Lizard-themed responses to @mentions and random emoji reactions
+- **Lizard Facts**: 100+ educational facts about lizards
 
 ## Setup
 
@@ -51,6 +54,7 @@ All commands use the `*` prefix:
   - Usage: `*setup #temp_channel #afk_channel`
   - Or just `*setup` to view current configuration
 - `*ping` - Check if the bot is responding and get latency
+- `*stats` - Show server statistics and top 3 most visited users leaderboard
 - `*timer` - Show remaining time before next automatic visit and list users in voice channels (for your server)
 - `*lizard` - Manually trigger the lizard:
   - If you're in a voice channel: Bot joins your channel only
@@ -63,6 +67,9 @@ All commands use the `*` prefix:
 
 - **@mention the bot** - Get a random lizard response from 100+ quirky lizard messages!
   - Example: "@LizardBot hello!" → "Blink blink." or "Sun feels good today."
+- **@mention + "fact"** - Get a random lizard fact!
+  - Example: "@LizardBot fact" → "🦎 **Lizard Fact:** There are over 6,000 species of lizards worldwide."
+- **Random emoji reactions** - Bot occasionally reacts to messages with 🦎 (3% chance)
 
 ## How It Works
 
