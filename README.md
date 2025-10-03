@@ -9,7 +9,7 @@ A Discord bot that randomly joins voice channels to play audio, with automatic u
 - **Per-Guild Configuration**: Each server configures its own TEMP/AFK channels using `*setup`
 - **Auto-Mover**: Automatically moves users from a TEMP channel to AFK channel (configured per-guild)
 - **Manual Control**: Commands to manually trigger bot actions
-- **Kidnap Feature**: Drag users to AFK channel with audio playback
+- **Kidnap Feature**: D20 dice roll system to attempt kidnapping users (with immunity and delayed kidnaps)
 - **Statistics Tracking**: Track visits and kidnaps per user, with top 3 leaderboard
 - **Interactive Responses**: Lizard-themed responses to @mentions and random emoji reactions
 - **Lizard Facts**: 100+ educational facts about lizards
@@ -59,7 +59,11 @@ All commands use the `*` prefix:
 - `*lizard` - Manually trigger the lizard:
   - If you're in a voice channel: Bot joins your channel only
   - If you're NOT in a voice channel: Bot visits all channels with users (bypasses timer)
-- `*kidnap @user` - Drag a user to AFK channel with audio playback (requires `*setup` first)
+- `*kidnap @user` - Roll a D20 to attempt kidnapping a user to AFK channel! (requires `*setup` first)
+  - **High roll (14-20):** Immediate kidnap with sound!
+  - **Mid roll (8-13):** Pending kidnap - happens on next timer visit
+  - **Low roll (1-7):** Failed - target gains 30 min immunity
+  - `*kidnap @user !force` - (Admin only) Bypass dice roll and force immediate kidnap
 - `*stop` - Stop current audio playback
 - `*leave` - Manually disconnect the bot from voice
 
@@ -87,6 +91,15 @@ All commands use the `*` prefix:
 - Only works in servers where it's been configured
 - Useful for custom AFK management
 
+### Kidnap Dice Roll System
+- Use `*kidnap @user` to attempt kidnapping someone
+- Bot sends a D20 dice roll gif, then shows the result (frame 1-20.png)
+- **High Roll (14-20):** Instant kidnap! Bot joins, plays sound, moves target to AFK
+- **Mid Roll (8-13):** Delayed kidnap - marked as "pending," happens on next timer visit
+- **Low Roll (1-7):** Failed attempt - target gets 30 minutes of kidnap immunity
+- Pending kidnaps execute automatically when bot visits that user's voice channel
+- **Admin Override:** Use `*kidnap @user !force` to bypass dice roll (Administrator permission required)
+
 ## Notes
 
 - **Multi-Guild Ready**: Works on multiple servers simultaneously without configuration
@@ -94,4 +107,13 @@ All commands use the `*` prefix:
 - Audio playback requires FFmpeg (included: `ffmpeg.exe`)
 - Make sure the bot has proper permissions in your Discord server
 - Don't forget to enable "Message Content Intent" in the Discord Developer Portal
-- Bot status will show "Lizard" when online 
+- Bot status will show "Lizard" when online
+
+## Required Files
+
+- `lizzard-1.mp3` - Audio file played when bot visits
+- `Diceroll.gif` - Animated dice roll for kidnap attempts
+- `frames/` directory - Contains `1.png` through `20.png` for dice results
+- `lizard_bot_responses.txt` - 100 quirky lizard responses
+- `lizard_facts.txt` - 100 educational lizard facts
+- `guild_configs.json` - Auto-generated per-guild settings 

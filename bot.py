@@ -31,6 +31,12 @@ CONFIG_FILE = 'guild_configs.json'
 # Per-guild timer tracking: {guild_id: next_play_time}
 guild_timers = {}
 
+# Kidnap immunity tracking: {(guild_id, user_id): expiry_time}
+kidnap_immunity = {}
+
+# Pending kidnaps: {(guild_id, user_id): requester_id}
+pending_kidnaps = {}
+
 def load_guild_configs():
     """Load guild configurations from JSON file"""
     if os.path.exists(CONFIG_FILE):
@@ -345,6 +351,21 @@ async def lizard_timer():
                         for member in members:
                             increment_user_stat(guild.id, member.id, 'visits')
                         
+                        # Check for pending kidnaps
+                        guild_config = get_guild_config(guild.id)
+                        afk_channel_id = guild_config.get('afk_channel_id')
+                        if afk_channel_id:
+                            afk_channel = bot.get_channel(afk_channel_id)
+                            if afk_channel:
+                                for member in members:
+                                    pending_key = (guild.id, member.id)
+                                    if pending_key in pending_kidnaps:
+                                        logger.info(f"Executing pending kidnap for {member.display_name}")
+                                        success = await execute_kidnap(guild, member, afk_channel)
+                                        if success:
+                                            del pending_kidnaps[pending_key]
+                                            await asyncio.sleep(2)
+                        
                         # Small delay between channels
                         await asyncio.sleep(2)
                 
@@ -390,6 +411,21 @@ async def lizard_command(ctx):
             for member in members:
                 increment_user_stat(ctx.guild.id, member.id, 'visits')
             
+            # Check for pending kidnaps
+            guild_config = get_guild_config(ctx.guild.id)
+            afk_channel_id = guild_config.get('afk_channel_id')
+            if afk_channel_id:
+                afk_channel = bot.get_channel(afk_channel_id)
+                if afk_channel:
+                    for member in members:
+                        pending_key = (ctx.guild.id, member.id)
+                        if pending_key in pending_kidnaps:
+                            logger.info(f"Executing pending kidnap for {member.display_name}")
+                            success = await execute_kidnap(ctx.guild, member, afk_channel)
+                            if success:
+                                del pending_kidnaps[pending_key]
+                                await asyncio.sleep(2)
+            
             await ctx.send(f"🦎 Lizard has visited {sender_channel.name}!")
             logger.info(f"Manual lizard command executed in {sender_channel.name} by {ctx.author.display_name}")
         except Exception as e:
@@ -419,6 +455,21 @@ async def lizard_command(ctx):
                     # Track stats for all users
                     for member in members:
                         increment_user_stat(ctx.guild.id, member.id, 'visits')
+                    
+                    # Check for pending kidnaps
+                    guild_config = get_guild_config(ctx.guild.id)
+                    afk_channel_id = guild_config.get('afk_channel_id')
+                    if afk_channel_id:
+                        afk_channel = bot.get_channel(afk_channel_id)
+                        if afk_channel:
+                            for member in members:
+                                pending_key = (ctx.guild.id, member.id)
+                                if pending_key in pending_kidnaps:
+                                    logger.info(f"Executing pending kidnap for {member.display_name}")
+                                    success = await execute_kidnap(ctx.guild, member, afk_channel)
+                                    if success:
+                                        del pending_kidnaps[pending_key]
+                                        await asyncio.sleep(2)
                     
                     visited_channels.append(channel.name)
                     await asyncio.sleep(2)
@@ -480,49 +531,24 @@ async def setup(ctx, temp_channel: discord.VoiceChannel = None, afk_channel: dis
     )
     logger.info(f"Guild {ctx.guild.name} configured: TEMP={temp_channel.id}, AFK={afk_channel.id}")
 
-@bot.command(name='kidnap')
-async def kidnap(ctx, member: discord.Member = None):
-    """Kidnap a user to the AFK channel with the lizard sound"""
-    # Get guild-specific AFK channel
-    guild_config = get_guild_config(ctx.guild.id)
-    afk_channel_id = guild_config.get('afk_channel_id')
-    
-    if not afk_channel_id:
-        await ctx.send("AFK channel not configured! Use `*setup` to configure channels.")
-        return
-    
-    if member is None:
-        await ctx.send("You need to mention a user to kidnap! Example: `*kidnap @user`")
-        return
-    
-    if member.bot:
-        await ctx.send("Can't kidnap bots!")
-        return
-    
-    if not member.voice or not member.voice.channel:
-        await ctx.send(f"{member.display_name} is not in a voice channel!")
-        return
-    
-    victim_channel = member.voice.channel
-    afk_channel = bot.get_channel(afk_channel_id)
-    
-    if not afk_channel:
-        await ctx.send("AFK channel not found!")
-        return
-    
+async def execute_kidnap(guild, member, afk_channel):
+    """Execute the actual kidnap - join, play, move"""
     try:
-        await ctx.send(f"🦎 Kidnapping {member.mention}...")
+        if not member.voice or not member.voice.channel:
+            return False
+        
+        victim_channel = member.voice.channel
         
         # Join the victim's channel
-        if ctx.guild.voice_client:
-            await ctx.guild.voice_client.disconnect(force=True)
+        if guild.voice_client:
+            await guild.voice_client.disconnect(force=True)
             await asyncio.sleep(1)
         
         voice_client = await victim_channel.connect(timeout=30.0, reconnect=False, self_deaf=False, self_mute=False)
         logger.info(f"Joined {victim_channel.name} to kidnap {member.display_name}")
         
         # Ensure bot is unmuted
-        await ctx.guild.me.edit(mute=False, deafen=False)
+        await guild.me.edit(mute=False, deafen=False)
         
         # Wait a moment for connection to stabilize
         await asyncio.sleep(1)
@@ -548,30 +574,115 @@ async def kidnap(ctx, member: discord.Member = None):
         logger.info(f"Moved {member.display_name} to AFK channel")
         
         # Track kidnap stat
-        increment_user_stat(ctx.guild.id, member.id, 'kidnaps')
+        increment_user_stat(guild.id, member.id, 'kidnaps')
         
         # Move bot to AFK channel briefly
-        await ctx.guild.me.move_to(afk_channel)
+        await guild.me.move_to(afk_channel)
         await asyncio.sleep(1)
         
         # Leave the channel
         await voice_client.disconnect(force=True)
         logger.info(f"Kidnap complete for {member.display_name}")
         
-        await ctx.send(f"{member.mention} has been kidnapped to {afk_channel.name}! 🦎")
+        return True
         
-    except discord.HTTPException as e:
-        await ctx.send(f"Failed to kidnap user: {str(e)}")
-        logger.error(f"HTTPException during kidnap: {e}")
-    except discord.ClientException as e:
-        await ctx.send(f"Connection error: {str(e)}")
-        logger.error(f"ClientException during kidnap: {e}")
     except Exception as e:
-        await ctx.send(f"Error during kidnap: {str(e)}")
-        logger.error(f"Error during kidnap: {e}")
-        # Cleanup
-        if ctx.guild.voice_client:
-            await ctx.guild.voice_client.disconnect(force=True)
+        logger.error(f"Error during kidnap execution: {e}")
+        if guild.voice_client:
+            await guild.voice_client.disconnect(force=True)
+        return False
+
+@bot.command(name='kidnap')
+async def kidnap(ctx, member: discord.Member = None, force_flag: str = None):
+    """Kidnap a user to the AFK channel with a D20 dice roll! Admins can use !force to bypass the roll."""
+    global kidnap_immunity, pending_kidnaps
+    
+    # Get guild-specific AFK channel
+    guild_config = get_guild_config(ctx.guild.id)
+    afk_channel_id = guild_config.get('afk_channel_id')
+    
+    if not afk_channel_id:
+        await ctx.send("AFK channel not configured! Use `*setup` to configure channels.")
+        return
+    
+    if member is None:
+        await ctx.send("You need to mention a user to kidnap! Example: `*kidnap @user` or `*kidnap @user !force` (admin)")
+        return
+    
+    if member.bot:
+        await ctx.send("Can't kidnap bots!")
+        return
+    
+    if not member.voice or not member.voice.channel:
+        await ctx.send(f"{member.display_name} is not in a voice channel!")
+        return
+    
+    afk_channel = bot.get_channel(afk_channel_id)
+    if not afk_channel:
+        await ctx.send("AFK channel not found!")
+        return
+    
+    # Check for !force flag
+    is_forced = force_flag == "!force"
+    
+    # If forced, check admin permissions
+    if is_forced:
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("Only administrators can use `!force`!")
+            return
+        
+        # Admin force kidnap - no dice roll, just do it
+        logger.info(f"Force kidnap by admin {ctx.author.display_name} on {member.display_name}")
+        success = await execute_kidnap(ctx.guild, member, afk_channel)
+        if success:
+            await ctx.send(f"🦎 **FORCE KIDNAP!** {member.mention} has been taken!")
+        return
+    
+    # Check immunity (only for non-forced kidnaps)
+    immunity_key = (ctx.guild.id, member.id)
+    now = datetime.now()
+    if immunity_key in kidnap_immunity and kidnap_immunity[immunity_key] > now:
+        time_left = kidnap_immunity[immunity_key] - now
+        minutes = int(time_left.total_seconds() / 60)
+        await ctx.send(f"{member.mention} has kidnap immunity for {minutes} more minutes!")
+        return
+    
+    # Send Diceroll.gif
+    gif_path = "Diceroll.gif"
+    if not os.path.exists(gif_path):
+        await ctx.send("Diceroll.gif not found!")
+        return
+    
+    dice_msg = await ctx.send(file=discord.File(gif_path))
+    await asyncio.sleep(2)  # Let the gif play
+    
+    # Roll the dice (1-20)
+    roll = random.randint(1, 20)
+    logger.info(f"Kidnap roll for {member.display_name}: {roll}")
+    
+    # Get the frame image
+    frame_path = f"frames/{roll}.png"
+    if os.path.exists(frame_path):
+        await dice_msg.delete()
+        result_msg = await ctx.send(file=discord.File(frame_path))
+    else:
+        result_msg = await ctx.send(f"🎲 Rolled: {roll}")
+    
+    # Determine outcome
+    if roll <= 7:  # Low roll - failed, immunity
+        await ctx.send("*lizard crawls away*")
+        kidnap_immunity[immunity_key] = now + timedelta(minutes=30)
+        logger.info(f"Kidnap failed for {member.display_name}, immunity granted for 30 mins")
+    
+    elif roll >= 14:  # High roll - immediate kidnap
+        success = await execute_kidnap(ctx.guild, member, afk_channel)
+        if success:
+            logger.info(f"Immediate kidnap successful for {member.display_name}")
+    
+    else:  # Mid roll (8-13) - pending kidnap
+        await ctx.send("it'll happen, eventually")
+        pending_kidnaps[(ctx.guild.id, member.id)] = ctx.author.id
+        logger.info(f"Kidnap for {member.display_name} marked as pending")
 
 @bot.command(name='stats')
 async def stats(ctx):
