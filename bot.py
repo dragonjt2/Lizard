@@ -2,6 +2,12 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import logging
+import asyncio
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('discord')
 
 # Load environment variables
 load_dotenv()
@@ -16,13 +22,25 @@ intents.message_content = True
 intents.voice_states = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='*', intents=intents)
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     print(f'Bot is in {len(bot.guilds)} guild(s)')
     print('Bot is ready to receive commands!')
+    
+    # Check for voice support
+    if not discord.opus.is_loaded():
+        print('WARNING: Opus library not loaded. Voice may not work properly.')
+    else:
+        print('✓ Opus library loaded successfully')
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """Handle voice state updates and potential disconnections"""
+    if member == bot.user and after.channel is None:
+        logger.info(f"Bot was disconnected from voice channel")
 
 @bot.command(name='ping')
 async def ping(ctx):
@@ -43,19 +61,36 @@ async def join(ctx):
     
     channel = ctx.author.voice.channel
     
-    if ctx.guild.voice_client:
-        await ctx.guild.voice_client.move_to(channel)
-        await ctx.send(f"Moved to {channel.name}")
-    else:
-        await channel.connect()
-        await ctx.send(f"Joined {channel.name}")
+    try:
+        if ctx.guild.voice_client:
+            await ctx.guild.voice_client.move_to(channel)
+            await ctx.send(f"Moved to {channel.name}")
+        else:
+            # Connect with timeout and reconnect settings
+            voice_client = await channel.connect(timeout=60.0, reconnect=True)
+            await ctx.send(f"Joined {channel.name}")
+            logger.info(f"Successfully connected to voice channel: {channel.name}")
+    except asyncio.TimeoutError:
+        await ctx.send("Connection timed out. Please try again.")
+        logger.error("Voice connection timeout")
+    except discord.ClientException as e:
+        await ctx.send(f"Connection error: {str(e)}")
+        logger.error(f"ClientException: {e}")
+    except Exception as e:
+        await ctx.send(f"Failed to join voice channel: {str(e)}")
+        logger.error(f"Unexpected error joining voice: {e}")
 
 @bot.command(name='leave')
 async def leave(ctx):
     """Leave the voice channel"""
     if ctx.guild.voice_client:
-        await ctx.guild.voice_client.disconnect()
-        await ctx.send("Left the voice channel")
+        try:
+            await ctx.guild.voice_client.disconnect(force=False)
+            await ctx.send("Left the voice channel")
+            logger.info("Disconnected from voice channel")
+        except Exception as e:
+            await ctx.send(f"Error leaving channel: {str(e)}")
+            logger.error(f"Error disconnecting: {e}")
     else:
         await ctx.send("I'm not in a voice channel!")
 
@@ -63,7 +98,7 @@ async def leave(ctx):
 async def play(ctx):
     """Play the audio file"""
     if not ctx.guild.voice_client:
-        await ctx.send("I need to be in a voice channel first! Use !join")
+        await ctx.send("I need to be in a voice channel first! Use *join")
         return
     
     if not os.path.exists("lizzard-1.mp3"):
@@ -72,25 +107,63 @@ async def play(ctx):
     
     voice_client = ctx.guild.voice_client
     
+    # Check if voice client is connected
+    if not voice_client.is_connected():
+        await ctx.send("Voice connection lost. Please use *join again.")
+        return
+    
     if voice_client.is_playing():
         voice_client.stop()
     
-    # Play the audio file
-    voice_client.play(
-        discord.FFmpegPCMAudio("lizzard-1.mp3"),
-        after=lambda e: print(f'Player error: {e}') if e else None
-    )
-    
-    await ctx.send("🎵 Playing lizzard-1.mp3")
+    try:
+        # Create audio source with error handling
+        def after_playback(error):
+            if error:
+                logger.error(f'Playback error: {error}')
+            else:
+                logger.info('Playback finished successfully')
+        
+        audio_source = discord.FFmpegPCMAudio("lizzard-1.mp3")
+        voice_client.play(audio_source, after=after_playback)
+        
+        await ctx.send("🎵 Playing lizzard-1.mp3")
+        logger.info("Started playing audio")
+    except discord.ClientException as e:
+        await ctx.send(f"Playback error: {str(e)}")
+        logger.error(f"ClientException during playback: {e}")
+    except Exception as e:
+        await ctx.send(f"Failed to play audio: {str(e)}\nMake sure FFmpeg is installed!")
+        logger.error(f"Error playing audio: {e}")
 
 @bot.command(name='stop')
 async def stop(ctx):
     """Stop audio playback"""
     if ctx.guild.voice_client and ctx.guild.voice_client.is_playing():
         ctx.guild.voice_client.stop()
-        await ctx.send("⏹️ Stopped playback")
+        await ctx.send("Stopped playback")
     else:
         await ctx.send("Nothing is playing!")
+
+@bot.command(name='debug')
+async def debug(ctx):
+    """Show debug information for voice connection"""
+    info = []
+    info.append("**Voice Debug Information:**")
+    info.append(f"Bot Latency: {round(bot.latency * 1000)}ms")
+    info.append(f"Opus Loaded: {'True' if discord.opus.is_loaded() else 'False'}")
+    
+    if ctx.guild.voice_client:
+        vc = ctx.guild.voice_client
+        info.append(f"Voice Connected: True")
+        info.append(f"Voice Channel: {vc.channel.name}")
+        info.append(f"Voice Latency: {round(vc.latency * 1000)}ms")
+        info.append(f"Is Playing: {'Yes' if vc.is_playing() else 'No'}")
+        info.append(f"Is Connected: {'Yes' if vc.is_connected() else 'No'}")
+    else:
+        info.append(f"Voice Connected: False")
+    
+    info.append(f"\nFFmpeg Available: Check console logs")
+    await ctx.send("\n".join(info))
 
 if __name__ == "__main__":
     if not TOKEN:
