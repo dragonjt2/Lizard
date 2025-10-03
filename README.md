@@ -9,15 +9,12 @@
    pip install -r requirements.txt
    ```
 
-2. Install FFmpeg (required for audio playback):
-   - Download from: https://ffmpeg.org/download.html
-   - Add to your system PATH
-
 3. Create a `.env` file based on `.envexample`:
    ```
    DISCORD_BOT_TOKEN=your_bot_token_here
    DISCORD_GUILD_ID=your_server_id
-   DISCORD_VOICE_CHANNEL=your_voice_channel_id
+   TEMP_Channel=temp_snowflake
+   AFK_Channel=afk_snowflake
    ```
 
 4. Get your bot token:
@@ -41,18 +38,16 @@ python bot.py
 
 ## Commands
 
-All commands use the `!` prefix:
+All commands use the `*` prefix:
 
-- `!ping` - Check if the bot is responding
-- `!hello` - Say hello to the bot
-- `!join` - Join your current voice channel
-- `!leave` - Leave the voice channel
-- `!play` - Play lizzard-1.mp3
-- `!stop` - Stop playing audio
+- `*ping` - Check if the bot is responding
+- `*timer` - will show the remaining time before next join
+- `*kidnap @username` will drag the person to an AFK channel
+- `*stop` - Stop playing audio
 
 ## Notes
 
-- The bot uses prefix commands (e.g., `!ping`)
+- The bot uses prefix commands (e.g., `*ping`)
 - Audio playback requires FFmpeg to be installed
 - Make sure the bot has proper permissions in your Discord server
 - Don't forget to enable "Message Content Intent" in the Discord Developer Portal 

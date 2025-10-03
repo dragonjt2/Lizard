@@ -37,6 +37,11 @@ async def on_ready():
     print(f'Bot is in {len(bot.guilds)} guild(s)')
     print('Bot is ready to receive commands!')
     
+    # Set custom activity
+    activity = discord.CustomActivity(name="Lizard")
+    await bot.change_presence(activity=activity)
+    print('Bot status set to: Lizard')
+    
     # Check for voice support
     if not discord.opus.is_loaded():
         print('WARNING: Opus library not loaded. Voice may not work properly.')
@@ -80,11 +85,6 @@ async def on_voice_state_update(member, before, after):
 async def ping(ctx):
     """Simple ping command"""
     await ctx.send(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
-
-@bot.command(name='hello')
-async def hello(ctx):
-    """Greet the user"""
-    await ctx.send(f"Hello {ctx.author.mention}! 👋")
 
 def get_users_in_voice_channels():
     """Get all users currently in voice channels"""
@@ -399,27 +399,6 @@ async def stop(ctx):
         await ctx.send("Stopped playback")
     else:
         await ctx.send("Nothing is playing!")
-
-@bot.command(name='debug')
-async def debug(ctx):
-    """Show debug information for voice connection"""
-    info = []
-    info.append("**Voice Debug Information:**")
-    info.append(f"Bot Latency: {round(bot.latency * 1000)}ms")
-    info.append(f"Opus Loaded: {'True' if discord.opus.is_loaded() else 'False'}")
-    
-    if ctx.guild.voice_client:
-        vc = ctx.guild.voice_client
-        info.append(f"Voice Connected: True")
-        info.append(f"Voice Channel: {vc.channel.name}")
-        info.append(f"Voice Latency: {round(vc.latency * 1000)}ms")
-        info.append(f"Is Playing: {'Yes' if vc.is_playing() else 'No'}")
-        info.append(f"Is Connected: {'Yes' if vc.is_connected() else 'No'}")
-    else:
-        info.append(f"Voice Connected: False")
-    
-    info.append(f"\nFFmpeg Available: Check console logs")
-    await ctx.send("\n".join(info))
 
 if __name__ == "__main__":
     if not TOKEN:
