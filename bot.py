@@ -62,14 +62,18 @@ async def join(ctx):
     channel = ctx.author.voice.channel
     
     try:
+        # If already connected, disconnect first to avoid session issues
         if ctx.guild.voice_client:
-            await ctx.guild.voice_client.move_to(channel)
-            await ctx.send(f"Moved to {channel.name}")
-        else:
-            # Connect with timeout and reconnect settings
-            voice_client = await channel.connect(timeout=60.0, reconnect=True)
-            await ctx.send(f"Joined {channel.name}")
-            logger.info(f"Successfully connected to voice channel: {channel.name}")
+            if ctx.guild.voice_client.channel.id == channel.id:
+                await ctx.send(f"Already in {channel.name}")
+                return
+            await ctx.guild.voice_client.disconnect(force=True)
+            await asyncio.sleep(1)  # Wait a moment before reconnecting
+        
+        # Connect with timeout and reconnect settings
+        voice_client = await channel.connect(timeout=30.0, reconnect=False)
+        await ctx.send(f"Joined {channel.name}")
+        logger.info(f"Successfully connected to voice channel: {channel.name}")
     except asyncio.TimeoutError:
         await ctx.send("Connection timed out. Please try again.")
         logger.error("Voice connection timeout")
@@ -85,7 +89,7 @@ async def leave(ctx):
     """Leave the voice channel"""
     if ctx.guild.voice_client:
         try:
-            await ctx.guild.voice_client.disconnect(force=False)
+            await ctx.guild.voice_client.disconnect(force=True)
             await ctx.send("Left the voice channel")
             logger.info("Disconnected from voice channel")
         except Exception as e:
@@ -123,7 +127,9 @@ async def play(ctx):
             else:
                 logger.info('Playback finished successfully')
         
-        audio_source = discord.FFmpegPCMAudio("lizzard-1.mp3")
+        # Get the path to ffmpeg.exe in the current directory
+        ffmpeg_path = os.path.join(os.path.dirname(__file__), "ffmpeg.exe")
+        audio_source = discord.FFmpegPCMAudio("lizzard-1.mp3", executable=ffmpeg_path)
         voice_client.play(audio_source, after=after_playback)
         
         await ctx.send("🎵 Playing lizzard-1.mp3")
