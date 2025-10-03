@@ -50,9 +50,10 @@ python bot.py
 
 All commands use the `*` prefix:
 
-- `*setup` - (Admin only) Configure TEMP and AFK channels for auto-mover
-  - Usage: `*setup #temp_channel #afk_channel`
-  - Or just `*setup` to view current configuration
+- `*setup` - (Admin only) Configure guild settings
+  - `*setup` - Show help and current configuration
+  - `*setup default-text #channel` - Set default text channel for bot messages
+  - `*setup afk #temp_channel #afk_channel` - Configure auto-mover channels
 - `*ping` - Check if the bot is responding and get latency
 - `*stats` - Show server statistics and top 3 most visited users leaderboard
 - `*timer` - Show remaining time before next automatic visit and list users in voice channels (for your server)

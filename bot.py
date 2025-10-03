@@ -62,13 +62,16 @@ def get_guild_config(guild_id):
     configs = load_guild_configs()
     return configs.get(str(guild_id), {})
 
-def set_guild_config(guild_id, temp_channel_id, afk_channel_id):
+def set_guild_config(guild_id, **kwargs):
     """Set configuration for a specific guild"""
     configs = load_guild_configs()
     if str(guild_id) not in configs:
         configs[str(guild_id)] = {'stats': {}}
-    configs[str(guild_id)]['temp_channel_id'] = temp_channel_id
-    configs[str(guild_id)]['afk_channel_id'] = afk_channel_id
+    
+    # Update only the provided keys
+    for key, value in kwargs.items():
+        configs[str(guild_id)][key] = value
+    
     save_guild_configs(configs)
 
 def increment_user_stat(guild_id, user_id, stat_type='visits'):
@@ -130,6 +133,32 @@ async def on_ready():
                 print(f'  - {guild.name}: Auto-mover enabled')
     else:
         print('No guilds configured yet. Use *setup to configure per-guild settings.')
+    
+    # Send startup message to all guilds
+    for guild in bot.guilds:
+        config = get_guild_config(guild.id)
+        default_text_id = config.get('default_text_channel_id')
+        
+        # Try to use configured default text channel
+        if default_text_id:
+            channel = bot.get_channel(default_text_id)
+            if channel and channel.permissions_for(guild.me).send_messages:
+                try:
+                    await channel.send("lizard is lerking")
+                    logger.info(f"Sent startup message to {channel.name} in {guild.name}")
+                    continue
+                except:
+                    pass
+        
+        # Fallback: Find the first text channel the bot can send messages to
+        for channel in guild.text_channels:
+            if channel.permissions_for(guild.me).send_messages:
+                try:
+                    await channel.send("lizard is lerking")
+                    logger.info(f"Sent startup message to {channel.name} in {guild.name} (fallback)")
+                    break
+                except:
+                    continue
 
 @bot.event
 async def on_message(message):
@@ -484,52 +513,106 @@ async def lizard_command(ctx):
 
 @bot.command(name='setup')
 @commands.has_permissions(administrator=True)
-async def setup(ctx, temp_channel: discord.VoiceChannel = None, afk_channel: discord.VoiceChannel = None):
-    """Configure TEMP and AFK channels for this guild (Admin only)
+async def setup(ctx, subcommand: str = None, *args):
+    """Configure guild settings (Admin only)
     
-    Usage: *setup #temp_channel #afk_channel
-    Or just: *setup (to view current config)
+    Usage:
+    *setup - Show this help message and current config
+    *setup default-text #channel - Set default text channel for bot messages
+    *setup afk #temp_channel #afk_channel - Configure auto-mover channels
     """
     guild_id = ctx.guild.id
     
-    # If no channels provided, show current config
-    if temp_channel is None and afk_channel is None:
+    # Show help if no subcommand provided
+    if subcommand is None:
         config = get_guild_config(guild_id)
-        if config:
-            temp_ch = bot.get_channel(config.get('temp_channel_id'))
-            afk_ch = bot.get_channel(config.get('afk_channel_id'))
-            info = [
-                f"**🦎 Configuration for {ctx.guild.name}:**",
-                f"**TEMP Channel:** {temp_ch.mention if temp_ch else 'Not found'} (ID: {config.get('temp_channel_id')})",
-                f"**AFK Channel:** {afk_ch.mention if afk_ch else 'Not found'} (ID: {config.get('afk_channel_id')})",
-                "",
-                "To update: `*setup #temp_channel #afk_channel`"
-            ]
-            await ctx.send("\n".join(info))
+        
+        info = [
+            f"**🦎 Setup Commands for {ctx.guild.name}**",
+            "",
+            "**Usage:**",
+            "`*setup` - Show this help message",
+            "`*setup default-text #channel` - Set default text channel",
+            "`*setup afk #temp_channel #afk_channel` - Configure auto-mover",
+            "",
+            "**Current Configuration:**"
+        ]
+        
+        # Show default text channel
+        default_text_id = config.get('default_text_channel_id')
+        if default_text_id:
+            default_ch = bot.get_channel(default_text_id)
+            info.append(f"📝 **Default Text:** {default_ch.mention if default_ch else 'Channel not found'}")
         else:
-            await ctx.send(f"No configuration set for {ctx.guild.name}.\n\nUsage: `*setup #temp_channel #afk_channel`")
+            info.append("📝 **Default Text:** Not set")
+        
+        # Show AFK channels
+        temp_ch = bot.get_channel(config.get('temp_channel_id')) if config.get('temp_channel_id') else None
+        afk_ch = bot.get_channel(config.get('afk_channel_id')) if config.get('afk_channel_id') else None
+        
+        if temp_ch and afk_ch:
+            info.append(f"🚪 **Auto-mover:** {temp_ch.mention} → {afk_ch.mention}")
+        else:
+            info.append("🚪 **Auto-mover:** Not set")
+        
+        await ctx.send("\n".join(info))
         return
     
-    # Both channels must be provided together
-    if temp_channel is None or afk_channel is None:
-        await ctx.send("Please provide both TEMP and AFK channels.\n\nUsage: `*setup #temp_channel #afk_channel`")
+    # Handle 'default-text' subcommand
+    if subcommand.lower() in ['default-text', 'text', 'default']:
+        if len(ctx.message.channel_mentions) != 1:
+            await ctx.send("❌ Please mention exactly one text channel.\n\nUsage: `*setup default-text #channel`")
+            return
+        
+        text_channel = ctx.message.channel_mentions[0]
+        
+        if text_channel.guild.id != guild_id:
+            await ctx.send("❌ Channel must be from this server!")
+            return
+        
+        # Save the configuration
+        set_guild_config(guild_id, default_text_channel_id=text_channel.id)
+        
+        await ctx.send(
+            f"✅ **Default text channel set!**\n\n"
+            f"📝 **Channel:** {text_channel.mention}\n\n"
+            f"Bot startup messages will be sent here."
+        )
+        logger.info(f"Guild {ctx.guild.name} default text channel set: {text_channel.id}")
         return
     
-    # Verify channels are in the same guild
-    if temp_channel.guild.id != guild_id or afk_channel.guild.id != guild_id:
-        await ctx.send("Channels must be from this server!")
+    # Handle 'afk' subcommand
+    if subcommand.lower() == 'afk':
+        voice_mentions = [m for m in ctx.message.mentions if isinstance(ctx.guild.get_channel(m.id), discord.VoiceChannel)]
+        channel_mentions = [ctx.guild.get_channel(m.id) for m in ctx.message.mentions]
+        voice_channels = [ch for ch in channel_mentions if isinstance(ch, discord.VoiceChannel)]
+        
+        if len(voice_channels) != 2:
+            await ctx.send("❌ Please mention exactly two voice channels.\n\nUsage: `*setup afk #temp_channel #afk_channel`")
+            return
+        
+        temp_channel = voice_channels[0]
+        afk_channel = voice_channels[1]
+        
+        # Verify channels are in the same guild
+        if temp_channel.guild.id != guild_id or afk_channel.guild.id != guild_id:
+            await ctx.send("❌ Channels must be from this server!")
+            return
+        
+        # Save the configuration
+        set_guild_config(guild_id, temp_channel_id=temp_channel.id, afk_channel_id=afk_channel.id)
+        
+        await ctx.send(
+            f"✅ **Auto-mover configured!**\n\n"
+            f"🚪 **TEMP:** {temp_channel.mention}\n"
+            f"🚪 **AFK:** {afk_channel.mention}\n\n"
+            f"Users joining {temp_channel.mention} will automatically be moved to {afk_channel.mention}"
+        )
+        logger.info(f"Guild {ctx.guild.name} AFK channels configured: TEMP={temp_channel.id}, AFK={afk_channel.id}")
         return
     
-    # Save the configuration
-    set_guild_config(guild_id, temp_channel.id, afk_channel.id)
-    
-    await ctx.send(
-        f"✅ **Configuration saved for {ctx.guild.name}!**\n\n"
-        f"**TEMP Channel:** {temp_channel.mention}\n"
-        f"**AFK Channel:** {afk_channel.mention}\n\n"
-        f"Users joining {temp_channel.mention} will automatically be moved to {afk_channel.mention}"
-    )
-    logger.info(f"Guild {ctx.guild.name} configured: TEMP={temp_channel.id}, AFK={afk_channel.id}")
+    # Unknown subcommand
+    await ctx.send(f"❌ Unknown subcommand: `{subcommand}`\n\nUse `*setup` to see available commands.")
 
 async def execute_kidnap(guild, member, afk_channel):
     """Execute the actual kidnap - join, play, move"""
