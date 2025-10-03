@@ -6,6 +6,7 @@ import logging
 import asyncio
 import random
 from datetime import datetime, timedelta
+import json
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -15,10 +16,6 @@ logger = logging.getLogger('discord')
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-GUILD_ID = os.getenv('DISCORD_GUILD_ID')
-VOICE_CHANNEL = os.getenv('DISCORD_VOICE_CHANNEL')
-TEMP_CHANNEL_ID = int(os.getenv('TEMP_Channel')) if os.getenv('TEMP_Channel') else None
-AFK_CHANNEL_ID = int(os.getenv('AFK_Channel')) if os.getenv('AFK_Channel') else None
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -28,8 +25,48 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix='*', intents=intents)
 
-# Timer tracking variables
-next_play_time = None
+# Guild configuration file
+CONFIG_FILE = 'guild_configs.json'
+
+# Per-guild timer tracking: {guild_id: next_play_time}
+guild_timers = {}
+
+def load_guild_configs():
+    """Load guild configurations from JSON file"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading guild configs: {e}")
+            return {}
+    return {}
+
+def save_guild_configs(configs):
+    """Save guild configurations to JSON file"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(configs, f, indent=2)
+        logger.info("Guild configurations saved")
+    except Exception as e:
+        logger.error(f"Error saving guild configs: {e}")
+
+def get_guild_config(guild_id):
+    """Get configuration for a specific guild"""
+    configs = load_guild_configs()
+    return configs.get(str(guild_id), {})
+
+def set_guild_config(guild_id, temp_channel_id, afk_channel_id):
+    """Set configuration for a specific guild"""
+    configs = load_guild_configs()
+    configs[str(guild_id)] = {
+        'temp_channel_id': temp_channel_id,
+        'afk_channel_id': afk_channel_id
+    }
+    save_guild_configs(configs)
+
+# Load configs on startup
+guild_configs = load_guild_configs()
 
 @bot.event
 async def on_ready():
@@ -51,13 +88,47 @@ async def on_ready():
     # Start the background task
     if not lizard_timer.is_running():
         lizard_timer.start()
-        print('Lizard timer started')
+        print('Lizard timer started (per-guild)')
     
-    # Check if auto-mover is configured
-    if TEMP_CHANNEL_ID and AFK_CHANNEL_ID:
-        print(f'Auto-mover enabled: TEMP ({TEMP_CHANNEL_ID}) → AFK ({AFK_CHANNEL_ID})')
+    # Show configured guilds
+    configs = load_guild_configs()
+    if configs:
+        print(f'Configured guilds: {len(configs)}')
+        for guild_id, config in configs.items():
+            guild = bot.get_guild(int(guild_id))
+            if guild:
+                print(f'  - {guild.name}: Auto-mover enabled')
     else:
-        print('Auto-mover not configured (TEMP_Channel and AFK_Channel required in .env)')
+        print('No guilds configured yet. Use *setup to configure per-guild settings.')
+
+@bot.event
+async def on_message(message):
+    """Handle messages, especially when bot is mentioned"""
+    # Don't respond to self
+    if message.author == bot.user:
+        return
+    
+    # Check if bot is mentioned
+    if bot.user in message.mentions:
+        try:
+            # Read random line from lizard_bot_responses.txt
+            if os.path.exists('lizard_bot_responses.txt'):
+                with open('lizard_bot_responses.txt', 'r', encoding='utf-8') as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+                
+                if lines:
+                    response = random.choice(lines)
+                    await message.reply(response)
+                    logger.info(f"Responded to mention from {message.author.display_name}: {response}")
+            else:
+                await message.reply("Hiss. (Response file not found)")
+                logger.warning("lizard_bot_responses.txt not found")
+        except Exception as e:
+            logger.error(f"Error reading response file: {e}")
+            await message.reply("Hiss?")
+    
+    # Process commands
+    await bot.process_commands(message)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -66,20 +137,25 @@ async def on_voice_state_update(member, before, after):
         logger.info(f"Bot was disconnected from voice channel")
         return
     
-    # Auto-move users from TEMP channel to AFK channel
-    if TEMP_CHANNEL_ID and AFK_CHANNEL_ID and after.channel:
-        # If user joined the TEMP channel
-        if after.channel.id == TEMP_CHANNEL_ID and not member.bot:
-            # Get the AFK channel
-            afk_channel = bot.get_channel(AFK_CHANNEL_ID)
-            if afk_channel:
-                try:
-                    await member.move_to(afk_channel)
-                    logger.info(f"Moved {member.display_name} from TEMP to AFK channel")
-                except discord.HTTPException as e:
-                    logger.error(f"Failed to move {member.display_name}: {e}")
-                except Exception as e:
-                    logger.error(f"Error moving user: {e}")
+    # Auto-move users from TEMP channel to AFK channel (per-guild)
+    if after.channel and not member.bot:
+        guild_config = get_guild_config(member.guild.id)
+        temp_channel_id = guild_config.get('temp_channel_id')
+        afk_channel_id = guild_config.get('afk_channel_id')
+        
+        if temp_channel_id and afk_channel_id:
+            # If user joined the TEMP channel
+            if after.channel.id == temp_channel_id:
+                # Get the AFK channel
+                afk_channel = bot.get_channel(afk_channel_id)
+                if afk_channel:
+                    try:
+                        await member.move_to(afk_channel)
+                        logger.info(f"Moved {member.display_name} from TEMP to AFK channel in {member.guild.name}")
+                    except discord.HTTPException as e:
+                        logger.error(f"Failed to move {member.display_name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error moving user: {e}")
 
 @bot.command(name='ping')
 async def ping(ctx):
@@ -99,6 +175,25 @@ def get_users_in_voice_channels():
                     'guild': guild
                 })
     return users_info
+
+def get_users_in_voice_channels_per_guild():
+    """Get users in voice channels organized by guild"""
+    guild_voice_info = {}
+    for guild in bot.guilds:
+        channels_with_users = []
+        for channel in guild.voice_channels:
+            members = [m for m in channel.members if not m.bot]
+            if members:
+                channels_with_users.append({
+                    'channel': channel,
+                    'members': members
+                })
+        if channels_with_users:
+            guild_voice_info[guild.id] = {
+                'guild': guild,
+                'channels': channels_with_users
+            }
+    return guild_voice_info
 
 async def join_play_leave(channel):
     """Join a voice channel, play audio, then leave"""
@@ -156,52 +251,56 @@ async def join_play_leave(channel):
 
 @tasks.loop(seconds=10)
 async def lizard_timer():
-    """Background task that monitors voice channels and plays audio on timer"""
-    global next_play_time
+    """Background task that monitors voice channels per guild and plays audio on timer"""
+    global guild_timers
     
-    # Get users in voice channels
-    voice_info = get_users_in_voice_channels()
+    # Get users in voice channels organized by guild
+    guild_voice_info = get_users_in_voice_channels_per_guild()
     
-    # If no users in any voice channel, reset timer
-    if not voice_info:
-        if next_play_time is not None:
-            logger.info("No users in voice channels. Timer paused.")
-        next_play_time = None
-        return
+    # Get current time
+    now = datetime.now()
     
-    # If timer not set and there are users, set a new timer
-    if next_play_time is None:
-        # Random time between 1 and 2 minutes (you had changed this)
-        minutes = random.randint(2, 30)
-        next_play_time = datetime.now() + timedelta(minutes=minutes)
-        logger.info(f"Timer set for {minutes} minutes. Will visit all channels with users.")
-        return
-    
-    # Check if it's time to play
-    if datetime.now() >= next_play_time:
-        logger.info(f"Time to play! Visiting all channels with users...")
+    # Process each guild independently
+    for guild in bot.guilds:
+        guild_id = guild.id
+        has_users = guild_id in guild_voice_info
         
-        # Get fresh list of channels with users
-        current_voice_info = get_users_in_voice_channels()
+        # If no users in this guild's voice channels, reset its timer
+        if not has_users:
+            if guild_id in guild_timers and guild_timers[guild_id] is not None:
+                logger.info(f"[{guild.name}] No users in voice channels. Timer paused.")
+            guild_timers[guild_id] = None
+            continue
         
-        if current_voice_info:
-            # Visit each channel with users
-            for channel_info in current_voice_info:
-                channel = channel_info['channel']
-                members = [m for m in channel.members if not m.bot]
-                
-                if members:
-                    logger.info(f"Joining {channel.name} in {channel.guild.name} ({len(members)} users)")
-                    await join_play_leave(channel)
-                    # Small delay between channels
-                    await asyncio.sleep(2)
+        # If timer not set for this guild and there are users, set a new timer
+        if guild_id not in guild_timers or guild_timers[guild_id] is None:
+            # Random time between 2 and 30 minutes
+            minutes = random.randint(2, 30)
+            guild_timers[guild_id] = now + timedelta(minutes=minutes)
+            logger.info(f"[{guild.name}] Timer set for {minutes} minutes.")
+            continue
+        
+        # Check if it's time to play for this guild
+        if now >= guild_timers[guild_id]:
+            logger.info(f"[{guild.name}] Time to play! Visiting all channels...")
             
-            logger.info("Finished visiting all channels!")
-        else:
-            logger.info("No channels with users at trigger time. Skipping.")
-        
-        # Reset timer
-        next_play_time = None
+            guild_info = guild_voice_info.get(guild_id)
+            if guild_info:
+                # Visit each channel with users in this guild
+                for channel_info in guild_info['channels']:
+                    channel = channel_info['channel']
+                    members = channel_info['members']
+                    
+                    if members:
+                        logger.info(f"[{guild.name}] Joining {channel.name} ({len(members)} users)")
+                        await join_play_leave(channel)
+                        # Small delay between channels
+                        await asyncio.sleep(2)
+                
+                logger.info(f"[{guild.name}] Finished visiting all channels!")
+            
+            # Reset timer for this guild
+            guild_timers[guild_id] = None
 
 @lizard_timer.before_loop
 async def before_lizard_timer():
@@ -270,11 +369,64 @@ async def lizard_command(ctx):
             await ctx.send(f"Error during lizard tour: {str(e)}")
             logger.error(f"Error in manual timer trigger: {e}")
 
+@bot.command(name='setup')
+@commands.has_permissions(administrator=True)
+async def setup(ctx, temp_channel: discord.VoiceChannel = None, afk_channel: discord.VoiceChannel = None):
+    """Configure TEMP and AFK channels for this guild (Admin only)
+    
+    Usage: *setup #temp_channel #afk_channel
+    Or just: *setup (to view current config)
+    """
+    guild_id = ctx.guild.id
+    
+    # If no channels provided, show current config
+    if temp_channel is None and afk_channel is None:
+        config = get_guild_config(guild_id)
+        if config:
+            temp_ch = bot.get_channel(config.get('temp_channel_id'))
+            afk_ch = bot.get_channel(config.get('afk_channel_id'))
+            info = [
+                f"**🦎 Configuration for {ctx.guild.name}:**",
+                f"**TEMP Channel:** {temp_ch.mention if temp_ch else 'Not found'} (ID: {config.get('temp_channel_id')})",
+                f"**AFK Channel:** {afk_ch.mention if afk_ch else 'Not found'} (ID: {config.get('afk_channel_id')})",
+                "",
+                "To update: `*setup #temp_channel #afk_channel`"
+            ]
+            await ctx.send("\n".join(info))
+        else:
+            await ctx.send(f"No configuration set for {ctx.guild.name}.\n\nUsage: `*setup #temp_channel #afk_channel`")
+        return
+    
+    # Both channels must be provided together
+    if temp_channel is None or afk_channel is None:
+        await ctx.send("Please provide both TEMP and AFK channels.\n\nUsage: `*setup #temp_channel #afk_channel`")
+        return
+    
+    # Verify channels are in the same guild
+    if temp_channel.guild.id != guild_id or afk_channel.guild.id != guild_id:
+        await ctx.send("Channels must be from this server!")
+        return
+    
+    # Save the configuration
+    set_guild_config(guild_id, temp_channel.id, afk_channel.id)
+    
+    await ctx.send(
+        f"✅ **Configuration saved for {ctx.guild.name}!**\n\n"
+        f"**TEMP Channel:** {temp_channel.mention}\n"
+        f"**AFK Channel:** {afk_channel.mention}\n\n"
+        f"Users joining {temp_channel.mention} will automatically be moved to {afk_channel.mention}"
+    )
+    logger.info(f"Guild {ctx.guild.name} configured: TEMP={temp_channel.id}, AFK={afk_channel.id}")
+
 @bot.command(name='kidnap')
 async def kidnap(ctx, member: discord.Member = None):
     """Kidnap a user to the AFK channel with the lizard sound"""
-    if not AFK_CHANNEL_ID:
-        await ctx.send(" AFK channel not configured!")
+    # Get guild-specific AFK channel
+    guild_config = get_guild_config(ctx.guild.id)
+    afk_channel_id = guild_config.get('afk_channel_id')
+    
+    if not afk_channel_id:
+        await ctx.send("AFK channel not configured! Use `*setup` to configure channels.")
         return
     
     if member is None:
@@ -290,7 +442,7 @@ async def kidnap(ctx, member: discord.Member = None):
         return
     
     victim_channel = member.voice.channel
-    afk_channel = bot.get_channel(AFK_CHANNEL_ID)
+    afk_channel = bot.get_channel(afk_channel_id)
     
     if not afk_channel:
         await ctx.send("AFK channel not found!")
@@ -358,36 +510,50 @@ async def kidnap(ctx, member: discord.Member = None):
 
 @bot.command(name='timer')
 async def timer_status(ctx):
-    """Show timer status and users in voice channels"""
-    global next_play_time
+    """Show timer status and users in voice channels for this guild"""
+    global guild_timers
     
+    guild_id = ctx.guild.id
     info = []
-    info.append("**🦎 Lizard Timer Status:**")
+    info.append(f"**🦎 Lizard Timer Status for {ctx.guild.name}:**")
     info.append("")
     
-    # Show timer information
-    if next_play_time is None:
+    # Show timer information for this guild
+    if guild_id not in guild_timers or guild_timers[guild_id] is None:
         info.append("⏸️ **Timer:** Waiting for users in voice channels")
     else:
-        time_remaining = next_play_time - datetime.now()
-        minutes = int(time_remaining.total_seconds() / 60)
-        seconds = int(time_remaining.total_seconds() % 60)
-        info.append(f"⏱️ **Time Remaining:** {minutes}m {seconds}s")
-        info.append(f"🎯 **Target:** Will visit ALL channels with users")
+        time_remaining = guild_timers[guild_id] - datetime.now()
+        if time_remaining.total_seconds() > 0:
+            minutes = int(time_remaining.total_seconds() / 60)
+            seconds = int(time_remaining.total_seconds() % 60)
+            info.append(f"⏱️ **Time Remaining:** {minutes}m {seconds}s")
+            info.append(f"🎯 **Target:** Will visit ALL channels in this server with users")
+        else:
+            info.append("⏰ **Timer:** Expired, visiting channels soon...")
     
     info.append("")
-    info.append("**👥 Users in Voice Channels:**")
+    info.append("**👥 Users in Voice Channels (This Server):**")
     
-    # Show users in voice channels
-    voice_info = get_users_in_voice_channels()
-    if not voice_info:
-        info.append("No users in voice channels")
-    else:
-        for channel_info in voice_info:
-            channel = channel_info['channel']
-            members = channel_info['members']
+    # Show users in voice channels for this guild only
+    has_users = False
+    for channel in ctx.guild.voice_channels:
+        members = [m for m in channel.members if not m.bot]
+        if members:
+            has_users = True
             member_names = [m.display_name for m in members]
-            info.append(f"🔊 **{channel.name}** ({channel.guild.name}): {', '.join(member_names)}")
+            info.append(f"🔊 **{channel.name}**: {', '.join(member_names)}")
+    
+    if not has_users:
+        info.append("No users in voice channels")
+    
+    # Show configuration status
+    guild_config = get_guild_config(guild_id)
+    if guild_config:
+        info.append("")
+        info.append("⚙️ **Auto-mover:** Enabled")
+    else:
+        info.append("")
+        info.append("⚙️ **Auto-mover:** Not configured (use `*setup`)")
     
     await ctx.send("\n".join(info))
 

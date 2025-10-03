@@ -1,3 +1,4 @@
 .env
 .venv
 ./.venv
+guild_configs.json

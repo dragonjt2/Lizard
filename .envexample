@@ -1,4 +1,5 @@
+# Required: Your Discord bot token
 DISCORD_BOT_TOKEN=BOT_TOKEN_HERE
-DISCORD_GUILD_ID=DISCORD_GUILD_ID
-TEMP_Channel=temp_snowflake
-AFK_Channel=afk_snowflake
+
+# Note: TEMP and AFK channels are now configured per-guild using the *setup command
+# No need to set them in .env anymore!
