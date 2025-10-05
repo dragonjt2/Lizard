@@ -10,6 +10,7 @@ from .state import BotState
 from .settings import Settings, logger
 from .text_cache import TextCache
 from .storage.base import BaseGuildConfigStore
+from .embedding_service import get_embedding_service, initialize_embedding_service
 
 
 def register_events(
@@ -104,7 +105,40 @@ def register_events(
                 else:
                     lines = text_cache.get_lines("responses")
                     if lines:
-                        response = random.choice(lines)
+                        # Try to find a semantically similar response using embeddings
+                        try:
+                            embedding_service = get_embedding_service()
+                            
+                            # Initialize the service with responses if not already done
+                            if embedding_service.response_embeddings is None:
+                                initialize_embedding_service(lines)
+                            
+                            # Extract the query text (remove the mention)
+                            query = message.content.replace(f"<@{bot.user.id}>", "").strip()
+                            if not query:
+                                query = message.content.replace(f"<@!{bot.user.id}>", "").strip()
+                            
+                            # Find the best matching response
+                            best_response = embedding_service.get_best_response(query, min_similarity=0.3)
+                            
+                            if best_response:
+                                response = best_response
+                                logger.info(
+                                    "Found semantic match for %s: '%s' -> '%s'",
+                                    message.author.display_name, query, response
+                                )
+                            else:
+                                # Fall back to random selection if no good semantic match
+                                response = random.choice(lines)
+                                logger.info(
+                                    "No semantic match found, using random response for %s: %s",
+                                    message.author.display_name, response
+                                )
+                        except Exception as embedding_error:
+                            # Fall back to random selection if embedding fails
+                            logger.warning("Embedding service failed, using random response: %s", embedding_error)
+                            response = random.choice(lines)
+                        
                         await message.reply(response)
                         logger.info(
                             "Responded to mention from %s: %s",
