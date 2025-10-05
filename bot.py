@@ -16,6 +16,8 @@ logger = logging.getLogger('discord')
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+README_URL = os.getenv('LIZARD_README_URL', 'https://github.com/yourname/Lizard#readme')
+KOFI_URL = os.getenv('LIZARD_KOFI_URL', 'https://ko-fi.com/yourname')
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -23,7 +25,8 @@ intents.message_content = True
 intents.voice_states = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix='*', intents=intents)
+# Disable default help so we can provide a custom help command.
+bot = commands.Bot(command_prefix='*', intents=intents, help_command=None)
 
 # Guild configuration file
 CONFIG_FILE = 'guild_configs.json'
@@ -36,6 +39,53 @@ kidnap_immunity = {}
 
 # Pending kidnaps: {(guild_id, user_id): requester_id}
 pending_kidnaps = {}
+
+# Cached text resources used in message responses.
+text_cache = {
+    'facts': {
+        'path': 'lizard_facts.txt',
+        'lines': None,
+        'mtime': None
+    },
+    'responses': {
+        'path': 'lizard_bot_responses.txt',
+        'lines': None,
+        'mtime': None
+    }
+}
+
+
+def _load_text_cache_entry(cache_key):
+    """Load and cache stripped lines for the provided cache entry."""
+    cache_entry = text_cache[cache_key]
+    file_path = cache_entry['path']
+
+    if not os.path.exists(file_path):
+        cache_entry['lines'] = None
+        cache_entry['mtime'] = None
+        return None
+
+    try:
+        mtime = os.path.getmtime(file_path)
+        if cache_entry['lines'] is None or cache_entry['mtime'] != mtime:
+            with open(file_path, 'r', encoding='utf-8') as handle:
+                cache_entry['lines'] = [line.strip() for line in handle if line.strip()]
+            cache_entry['mtime'] = mtime
+            logger.info(f"Loaded {cache_key} cache with {len(cache_entry['lines'])} entries")
+    except Exception as error:
+        logger.error(f"Error loading {cache_key} cache: {error}")
+        cache_entry['lines'] = None
+        cache_entry['mtime'] = None
+        return None
+
+    return cache_entry['lines']
+
+
+def get_cached_lines(cache_key):
+    """Return cached lines for the provided key, loading from disk if needed."""
+    if cache_key not in text_cache:
+        return None
+    return _load_text_cache_entry(cache_key)
 
 def load_guild_configs():
     """Load guild configurations from JSON file"""
@@ -179,28 +229,24 @@ async def on_message(message):
         try:
             # Check if "fact" is in the message
             if 'fact' in message.content.lower():
-                # Read random fact from lizard_facts.txt
-                if os.path.exists('lizard_facts.txt'):
-                    with open('lizard_facts.txt', 'r', encoding='utf-8') as f:
-                        facts = [line.strip() for line in f.readlines() if line.strip()]
-                    
-                    if facts:
-                        fact = random.choice(facts)
-                        await message.reply(f"🦎 **Lizard Fact:** {fact}")
-                        logger.info(f"Sent fact to {message.author.display_name}: {fact}")
+                # Pull a cached fact (refreshing cache if source file changed).
+                facts = get_cached_lines('facts')
+
+                if facts:
+                    fact = random.choice(facts)
+                    await message.reply(f"🦎 **Lizard Fact:** {fact}")
+                    logger.info(f"Sent fact to {message.author.display_name}: {fact}")
                 else:
                     await message.reply("Fact file not found. Hiss.")
                     logger.warning("lizard_facts.txt not found")
             else:
-                # Regular lizard response
-                if os.path.exists('lizard_bot_responses.txt'):
-                    with open('lizard_bot_responses.txt', 'r', encoding='utf-8') as f:
-                        lines = [line.strip() for line in f.readlines() if line.strip()]
-                    
-                    if lines:
-                        response = random.choice(lines)
-                        await message.reply(response)
-                        logger.info(f"Responded to mention from {message.author.display_name}: {response}")
+                # Regular lizard response using cached phrases.
+                lines = get_cached_lines('responses')
+
+                if lines:
+                    response = random.choice(lines)
+                    await message.reply(response)
+                    logger.info(f"Responded to mention from {message.author.display_name}: {response}")
                 else:
                     await message.reply("Hiss. (Response file not found)")
                     logger.warning("lizard_bot_responses.txt not found")
@@ -210,6 +256,21 @@ async def on_message(message):
     
     # Process commands
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Provide friendly feedback when commands are on cooldown."""
+    if isinstance(error, commands.CommandOnCooldown):
+        retry_after = max(1, int(error.retry_after))
+        command_name = ctx.command.qualified_name if ctx.command else 'unknown'
+        await ctx.send(f"Slow down! Try again in {retry_after} seconds.")
+        logger.info(f"Cooldown triggered for {command_name} by {ctx.author.display_name}")
+        return
+
+    logger.error(f"Command error: {error}")
+    raise error
+
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -242,6 +303,35 @@ async def on_voice_state_update(member, before, after):
 async def ping(ctx):
     """Simple ping command"""
     await ctx.send(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
+
+
+@bot.command(name='help')
+async def help_command(ctx):
+    """Show quick command reference and resource links."""
+    description_lines = [
+        "**Core Commands**",
+        "`*setup` - Configure default text and AFK channels (admin only)",
+        "`*lizard` - Summon the lizard to your channel or all active channels",
+        "`*kidnap @user` - Attempt a dice roll kidnap toward the AFK channel",
+        "`*stats` - View visit and kidnap statistics",
+        "`*timer` - Check time remaining before the next automatic visit",
+        "`*leave` - Disconnect the bot from voice",
+    ]
+
+    embed = discord.Embed(
+        title="Lizard Bot Help",
+        description="\n".join(description_lines),
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="Resources",
+        value=f"[README]({README_URL})\n[Ko-fi Support]({KOFI_URL})",
+        inline=False
+    )
+    embed.set_footer(text="Stay warm and bask responsibly.")
+
+    await ctx.send(embed=embed)
+
 
 def get_users_in_voice_channels():
     """Get all users currently in voice channels"""
@@ -423,9 +513,12 @@ async def leave(ctx):
         await ctx.send("I'm not in a voice channel!")
 
 @bot.command(name='lizard')
+@commands.cooldown(1, 30, commands.BucketType.user)
 async def lizard_command(ctx):
     """Manually trigger the lizard - joins your channel, or all channels if you're not in one"""
-    
+
+    # Cooldown applied via decorator to curb manual spam.
+
     # Check if the sender is in a voice channel
     if ctx.author.voice and ctx.author.voice.channel:
         # Join the sender's channel specifically
@@ -676,10 +769,13 @@ async def execute_kidnap(guild, member, afk_channel):
         return False
 
 @bot.command(name='kidnap')
+@commands.cooldown(1, 45, commands.BucketType.user)
 async def kidnap(ctx, member: discord.Member = None, force_flag: str = None):
     """Kidnap a user to the AFK channel with a D20 dice roll! Admins can use !force to bypass the roll."""
     global kidnap_immunity, pending_kidnaps
-    
+
+    # Cooldown ensures repeated attempts are spaced out per user.
+
     # Get guild-specific AFK channel
     guild_config = get_guild_config(ctx.guild.id)
     afk_channel_id = guild_config.get('afk_channel_id')
