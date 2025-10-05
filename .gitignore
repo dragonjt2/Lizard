@@ -2,3 +2,6 @@
 .venv
 ./.venv
 guild_configs.json
+start_lizard.bat
+start_lizard_silent.bat
+start_lizard_hidden.vbs
