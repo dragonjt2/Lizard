@@ -17,6 +17,7 @@ class BotState:
     guild_timers: Dict[int, Optional[datetime]] = field(default_factory=dict)
     kidnap_immunity: Dict[Tuple[int, int], datetime] = field(default_factory=dict)
     pending_kidnaps: Dict[Tuple[int, int], PendingKidnap] = field(default_factory=dict)
+    guild_prefixes: Dict[int, str] = field(default_factory=dict)
 
 
 __all__ = ["BotState", "PendingKidnap"]

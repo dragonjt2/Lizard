@@ -14,10 +14,33 @@ from lizard_bot.timer import create_lizard_timer
 settings = load_settings()
 intents = create_intents()
 
-bot = commands.Bot(command_prefix=settings.command_prefix, intents=intents, help_command=None)
 state = BotState()
 config_store = SqliteGuildConfigStore(settings.database_file)
 config_store.bootstrap_from_json(settings.config_file)
+
+# Preload known guild prefixes from storage (falls back to default if missing).
+for guild_id_str, payload in config_store.load_all().items():
+    try:
+        guild_identifier = int(guild_id_str)
+    except ValueError:
+        continue
+    prefix_value = payload.get("prefix") or settings.command_prefix
+    state.guild_prefixes[guild_identifier] = str(prefix_value)
+
+
+def resolve_prefix(bot_obj, message):
+    if message.guild:
+        cached_prefix = state.guild_prefixes.get(message.guild.id)
+        if cached_prefix:
+            return cached_prefix
+        guild_config = config_store.get_guild_config(message.guild.id)
+        prefix = guild_config.get("prefix") or settings.command_prefix
+        state.guild_prefixes[message.guild.id] = str(prefix)
+        return str(prefix)
+    return settings.command_prefix
+
+
+bot = commands.Bot(command_prefix=resolve_prefix, intents=intents, help_command=None)
 
 for (guild_id, user_id), record in config_store.load_pending_kidnaps().items():
     created_at = record.get("created_at") or datetime.utcnow()

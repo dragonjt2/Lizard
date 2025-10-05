@@ -12,8 +12,9 @@ from ..settings import logger
 
 USER_DEFAULTS = dict(DEFAULT_USER_TEMPLATE)
 PREFERENCE_KEYS = {"kidnap_opt_out"}
-ID_FIELDS = {"default_text_channel_id", "temp_channel_id", "afk_channel_id"}
+ID_FIELDS = {"default_text_channel_id", "temp_channel_id", "afk_channel_id", "kidnap_channel_id"}
 BOOL_FIELDS = {"auto_move_enabled"}
+INT_FIELDS = {"timer_min_minutes", "timer_max_minutes", "kidnap_immunity_minutes"}
 
 
 def _utcnow() -> datetime:
@@ -89,10 +90,12 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
                     default_text_channel_id TEXT,
                     temp_channel_id TEXT,
                     afk_channel_id TEXT,
+                    kidnap_channel_id TEXT,
                     prefix TEXT DEFAULT '*',
                     auto_move_enabled INTEGER NOT NULL DEFAULT 1,
                     timer_min_minutes INTEGER NOT NULL DEFAULT 2,
                     timer_max_minutes INTEGER NOT NULL DEFAULT 30,
+                    kidnap_immunity_minutes INTEGER NOT NULL DEFAULT 30,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -134,6 +137,14 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
             except sqlite3.OperationalError:
                 # Column already exists, ignore the error
                 pass
+            try:
+                connection.execute("ALTER TABLE guilds ADD COLUMN kidnap_channel_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("ALTER TABLE guilds ADD COLUMN kidnap_immunity_minutes INTEGER NOT NULL DEFAULT 30")
+            except sqlite3.OperationalError:
+                pass
             
             connection.commit()
 
@@ -174,17 +185,19 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
         payload: Dict[str, Any] = {}
         with self._connect() as connection:
             guild_rows = connection.execute(
-                "SELECT guild_id, default_text_channel_id, temp_channel_id, afk_channel_id, prefix, auto_move_enabled, timer_min_minutes, timer_max_minutes FROM guilds"
+                "SELECT guild_id, default_text_channel_id, temp_channel_id, afk_channel_id, kidnap_channel_id, prefix, auto_move_enabled, timer_min_minutes, timer_max_minutes, kidnap_immunity_minutes FROM guilds"
             ).fetchall()
             for row in guild_rows:
                 payload[row["guild_id"]] = {
                     "default_text_channel_id": row["default_text_channel_id"],
                     "temp_channel_id": row["temp_channel_id"],
                     "afk_channel_id": row["afk_channel_id"],
+                    "kidnap_channel_id": row["kidnap_channel_id"],
                     "prefix": row["prefix"],
                     "auto_move_enabled": row["auto_move_enabled"],
                     "timer_min_minutes": row["timer_min_minutes"],
                     "timer_max_minutes": row["timer_max_minutes"],
+                    "kidnap_immunity_minutes": row["kidnap_immunity_minutes"],
                     "stats": {},
                     "pending_kidnaps": {},
                 }
@@ -243,6 +256,8 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
                     "auto_move_enabled": _bool_to_int(payload.get("auto_move_enabled", 1)),
                     "timer_min_minutes": int(payload.get("timer_min_minutes", 2)),
                     "timer_max_minutes": int(payload.get("timer_max_minutes", 30)),
+                    "kidnap_channel_id": _stringify_id(payload.get("kidnap_channel_id")),
+                    "kidnap_immunity_minutes": int(payload.get("kidnap_immunity_minutes", 30)),
                 }
 
                 connection.execute(
@@ -252,23 +267,27 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
                         default_text_channel_id,
                         temp_channel_id,
                         afk_channel_id,
+                        kidnap_channel_id,
                         prefix,
                         auto_move_enabled,
                         timer_min_minutes,
                         timer_max_minutes,
+                        kidnap_immunity_minutes,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         guild_id,
                         config["default_text_channel_id"],
                         config["temp_channel_id"],
                         config["afk_channel_id"],
+                        config["kidnap_channel_id"],
                         config["prefix"],
                         config["auto_move_enabled"],
                         config["timer_min_minutes"],
                         config["timer_max_minutes"],
+                        config["kidnap_immunity_minutes"],
                         now_iso,
                         now_iso,
                     ),
@@ -349,26 +368,36 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
                 SELECT default_text_channel_id,
                        temp_channel_id,
                        afk_channel_id,
+                       kidnap_channel_id,
                        prefix,
                        auto_move_enabled,
                        timer_min_minutes,
-                       timer_max_minutes
+                       timer_max_minutes,
+                       kidnap_immunity_minutes
                 FROM guilds
                 WHERE guild_id = ?
-                """,
+                """
+                ,
                 (str(guild_id),),
             ).fetchone()
 
             config: Dict[str, Any] = {}
             if row:
+                row_keys = set(row.keys())
+
+                def safe_row_value(name: str, default: Any = None) -> Any:
+                    return row[name] if name in row_keys else default
+
                 config = {
-                    "default_text_channel_id": _normalize_id(row["default_text_channel_id"]),
-                    "temp_channel_id": _normalize_id(row["temp_channel_id"]),
-                    "afk_channel_id": _normalize_id(row["afk_channel_id"]),
-                    "prefix": row["prefix"],
-                    "auto_move_enabled": bool(row["auto_move_enabled"]),
-                    "timer_min_minutes": row["timer_min_minutes"],
-                    "timer_max_minutes": row["timer_max_minutes"],
+                    "default_text_channel_id": _normalize_id(safe_row_value("default_text_channel_id")),
+                    "temp_channel_id": _normalize_id(safe_row_value("temp_channel_id")),
+                    "afk_channel_id": _normalize_id(safe_row_value("afk_channel_id")),
+                    "kidnap_channel_id": _normalize_id(safe_row_value("kidnap_channel_id")),
+                    "prefix": safe_row_value("prefix"),
+                    "auto_move_enabled": bool(safe_row_value("auto_move_enabled", 1)),
+                    "timer_min_minutes": safe_row_value("timer_min_minutes"),
+                    "timer_max_minutes": safe_row_value("timer_max_minutes"),
+                    "kidnap_immunity_minutes": safe_row_value("kidnap_immunity_minutes"),
                 }
 
             timer_row = connection.execute(
@@ -385,10 +414,12 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
             "default_text_channel_id",
             "temp_channel_id",
             "afk_channel_id",
+            "kidnap_channel_id",
             "prefix",
             "auto_move_enabled",
             "timer_min_minutes",
             "timer_max_minutes",
+            "kidnap_immunity_minutes",
         }
         updates = {key: kwargs[key] for key in kwargs if key in allowed}
         if not updates:
@@ -398,7 +429,7 @@ class SqliteGuildConfigStore(BaseGuildConfigStore):
             updates[key] = _stringify_id(updates[key])
         for key in BOOL_FIELDS & updates.keys():
             updates[key] = _bool_to_int(updates[key])
-        for key in {"timer_min_minutes", "timer_max_minutes"} & updates.keys():
+        for key in INT_FIELDS & updates.keys():
             updates[key] = int(updates[key])
 
         now_iso = _to_iso(_utcnow())

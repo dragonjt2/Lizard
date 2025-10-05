@@ -180,6 +180,8 @@ def register_events(
 
         if after.channel and not member.bot:
             guild_config = config_store.get_guild_config(member.guild.id)
+            if not guild_config.get("auto_move_enabled", True):
+                return
             temp_channel_id = guild_config.get("temp_channel_id")
             afk_channel_id = guild_config.get("afk_channel_id")
 

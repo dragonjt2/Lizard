@@ -29,6 +29,14 @@ STAT_ALIASES: Dict[str, str] = {
 
 PREFERENCE_KEYS = {"kidnap_opt_out"}
 
+DEFAULT_GUILD_VALUES: Dict[str, Any] = {
+    "auto_move_enabled": True,
+    "timer_min_minutes": 2,
+    "timer_max_minutes": 30,
+    "kidnap_immunity_minutes": 30,
+    "kidnap_channel_id": None,
+}
+
 
 def _to_user_key(user_id: int) -> str:
     return str(user_id)
@@ -92,6 +100,8 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
         guild_config.setdefault("stats", {})
         guild_config.setdefault("pending_kidnaps", {})
         guild_config.setdefault("timer", {})
+        for key, value in DEFAULT_GUILD_VALUES.items():
+            guild_config.setdefault(key, value)
         return guild_config
 
     def _normalize_stat_name(self, stat_type: str) -> Optional[str]:
@@ -113,11 +123,21 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
         user_data["kidnap_opt_out"] = bool(user_data.get("kidnap_opt_out", False))
         return user_data
 
+    def _coerce_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        coerced = dict(config)
+        if "auto_move_enabled" in coerced:
+            coerced["auto_move_enabled"] = bool(coerced["auto_move_enabled"])
+        for key in ("timer_min_minutes", "timer_max_minutes", "kidnap_immunity_minutes"):
+            if key in coerced and coerced[key] is not None:
+                coerced[key] = int(coerced[key])
+        if "kidnap_channel_id" in coerced and coerced["kidnap_channel_id"] is not None:
+            coerced["kidnap_channel_id"] = int(coerced["kidnap_channel_id"])
+        return coerced
+
     def get_guild_config(self, guild_id: int) -> Dict[str, Any]:
         configs = self.load_all()
         guild_key = _to_guild_key(guild_id)
-        guild_config = configs.get(guild_key, {})
-        # Exclude derived sections when returning the config payload.
+        guild_config = self._ensure_guild(configs, guild_key)
         config = {
             key: value
             for key, value in guild_config.items()
@@ -126,13 +146,14 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
         timer_info = guild_config.get("timer", {})
         if "next_visit_at" in timer_info:
             config["next_visit_at"] = timer_info.get("next_visit_at")
-        return config
+        return self._coerce_config(config)
 
     def set_guild_config(self, guild_id: int, **kwargs: Any) -> None:
         configs = self.load_all()
         guild_key = _to_guild_key(guild_id)
         guild_config = self._ensure_guild(configs, guild_key)
-        guild_config.update(kwargs)
+        updates = self._coerce_config(kwargs)
+        guild_config.update(updates)
         self.save_all(configs)
 
     def increment_user_stat(
@@ -160,7 +181,7 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
     def get_guild_stats(self, guild_id: int) -> Dict[str, Any]:
         configs = self.load_all()
         guild_key = _to_guild_key(guild_id)
-        guild_config = configs.get(guild_key, {})
+        guild_config = self._ensure_guild(configs, guild_key)
         stats = guild_config.get("stats", {})
         return {
             user_id: self._compose_user(user_stats)
@@ -221,7 +242,7 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
     ) -> Optional[Dict[str, Any]]:
         configs = self.load_all()
         guild_key = _to_guild_key(guild_id)
-        pending = configs.get(guild_key, {}).get("pending_kidnaps", {})
+        pending = self._ensure_guild(configs, guild_key).get("pending_kidnaps", {})
         entry = pending.get(_to_user_key(target_user_id))
         if not entry:
             return None
@@ -263,7 +284,7 @@ class JsonGuildConfigStore(BaseGuildConfigStore):
     def get_guild_timer(self, guild_id: int) -> Optional[datetime]:
         configs = self.load_all()
         guild_key = _to_guild_key(guild_id)
-        timer = configs.get(guild_key, {}).get("timer", {})
+        timer = self._ensure_guild(configs, guild_key).get("timer", {})
         return _from_iso(timer.get("next_visit_at"))
 
     def load_guild_timers(self) -> Dict[int, Optional[datetime]]:
