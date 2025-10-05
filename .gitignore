@@ -8,3 +8,8 @@ start_lizard_hidden.vbs
 *.sqlite3
 __pycache__
 */__pycache__
+build/
+dist/
+*.spec
+*.bat
+*.vbs
