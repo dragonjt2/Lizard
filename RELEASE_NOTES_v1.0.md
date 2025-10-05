@@ -1,7 +1,5 @@
 # Lizard Bot v1.0 Release Notes
 
-## 🎉 First Official Release!
-
 Lizard Bot v1.0 is now available as a standalone Windows executable! This release marks the transition from a development project to a distributable application.
 
 ## 📦 What's New
@@ -31,9 +29,8 @@ Lizard Bot v1.0 is now available as a standalone Windows executable! This releas
 
 ## 📁 Distribution Contents
 
-- `LizardBot.exe` - Main executable (3.2GB - includes all ML dependencies)
+- `LizardBot.exe` - Main executable
 - `config.ini` - Bot configuration file
-- `guild_configs.json` - Guild-specific settings
 - `.env.example` - Environment variables template
 - `README.txt` - User instructions
 - `Start_LizardBot.bat` - Convenient launcher script
@@ -48,15 +45,11 @@ Lizard Bot v1.0 is now available as a standalone Windows executable! This releas
 
 ### Dependencies Included
 - Discord.py with voice support
-- Sentence Transformers (ML models)
+- Sentence Transformers (ML models) - Broken
 - PyTorch and related libraries
 - All required system libraries
 
-### File Size
-- **Executable**: ~3.2GB (includes ML models and dependencies)
-- **Distribution**: ~3.2GB total
-
-## 🎯 Features
+## Features
 
 All existing features are preserved:
 - Random voice channel visits
@@ -72,20 +65,20 @@ All existing features are preserved:
 - First startup may be slower (loading ML models)
 - Windows Defender may flag as suspicious (false positive)
 
-## 🔮 Future Improvements
+## Future Improvements
 
 - Optimize file size
 - Add installer/updater
 - Cross-platform builds (Linux/macOS)
 - Code signing for Windows Defender
 
-## 📞 Support
+## Support
 
 - GitHub: https://github.com/dragonjt2/Lizard
 - Ko-fi: ko-fi.com/dragnai
 
 ---
 
-**Build Date**: January 5, 2025  
+**Build Date**: Oct 5, 2025  
 **Version**: 1.0.0  
 **Platform**: Windows 10/11 (64-bit)

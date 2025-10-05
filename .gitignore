@@ -13,3 +13,6 @@ dist/
 *.spec
 *.bat
 *.vbs
+LizardBot_v1.0/
+LizardBot_v1.0.zip
+*.disabled

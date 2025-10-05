@@ -378,7 +378,6 @@ Lizard/
 │   ├── voice.py          # Voice channel management
 │   └── storage/          # Data storage (SQLite/JSON)
 ├── Frames/               # Dice roll result images
-├── Agent_docs/           # Development documentation
 ├── bot.py                # Main entry point
 ├── config.ini            # Configuration file
 ├── requirements.txt      # Python dependencies
@@ -430,7 +429,6 @@ The bot uses SQLite for data storage:
 
 - `Frames/` - Contains `1.png` through `20.png` for dice results
 - `lizard_bot/` - Main bot code
-- `Agent_docs/` - Development documentation
 
 ### Text Files
 
