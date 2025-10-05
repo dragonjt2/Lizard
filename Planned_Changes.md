@@ -11,3 +11,7 @@ etc
 Make start scripts better (on windows make app hide in taskbar "show hidden items" tab)
 *just set timer way into future? - Add admin only way of pausing lizard joining voice chat for a amount of time
 *Will add - Add a list of lizard themed texts for any currently boring static messages
+
+## v1.1 Update Notes:
+*CRITICAL* Fix ML dependencies issue - sentence-transformers/huggingface_hub compatibility problem causing ImportError: cannot import name 'cached_download'. Currently using fallback mode (random responses). Need to resolve for proper embedding functionality.
+*IMPORTANT* Remove database_file and guild_configs.json from distribution - these should be created by users on first run, not shipped with the executable.

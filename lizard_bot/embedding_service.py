@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import os
+import random
 from typing import List, Tuple
-import numpy as np
-from sentence_transformers import SentenceTransformer
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Try to import ML dependencies, but make them optional
+try:
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+    ML_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"ML dependencies not available: {e}. Using fallback mode.")
+    ML_AVAILABLE = False
 
 
 class EmbeddingService:
@@ -18,16 +26,23 @@ class EmbeddingService:
         
         Args:
             model_name: The sentence transformer model to use. 
-                       'all-MiniLM-L6-v2' is lightweight and fast.
+                      'all-MiniLM-L6-v2' is lightweight and fast.
         """
         self.model_name = model_name
         self.model = None
         self.responses = []
         self.response_embeddings = None
-        self._load_model()
+        if ML_AVAILABLE:
+            self._load_model()
+        else:
+            logger.info("ML not available, running EmbeddingService in fallback mode.")
     
     def _load_model(self) -> None:
         """Load the sentence transformer model."""
+        if not ML_AVAILABLE:
+            logger.warning("Attempted to load model when ML is not available.")
+            return
+
         try:
             logger.info(f"Loading embedding model: {self.model_name}")
             self.model = SentenceTransformer(self.model_name)
@@ -43,6 +58,11 @@ class EmbeddingService:
         Args:
             responses: List of response strings to match against
         """
+        if not ML_AVAILABLE:
+            self.responses = responses
+            logger.info("ML not available, storing responses for random selection.")
+            return
+
         if not self.model:
             raise RuntimeError("Model not loaded. Call _load_model() first.")
         
@@ -68,6 +88,11 @@ class EmbeddingService:
         Returns:
             List of tuples containing (response_text, similarity_score)
         """
+        if not ML_AVAILABLE:
+            if self.responses:
+                return [(random.choice(self.responses), 0.0)] # Return a random response with 0 similarity
+            return []
+
         if not self.model or self.response_embeddings is None:
             raise RuntimeError("Model or responses not loaded")
         
@@ -107,6 +132,11 @@ class EmbeddingService:
         Returns:
             The best matching response string, or None if no good match
         """
+        if not ML_AVAILABLE:
+            if self.responses:
+                return random.choice(self.responses)
+            return None
+
         results = self.find_most_similar(query, top_k=1)
         
         if not results:
