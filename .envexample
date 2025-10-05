@@ -3,3 +3,7 @@ DISCORD_BOT_TOKEN=BOT_TOKEN_HERE
 
 # Note: TEMP and AFK channels are now configured per-guild using the *setup command
 # No need to set them in .env anymore!
+
+# Optional: Customize help command resource links
+LIZARD_README_URL=https://github.com/yourname/Lizard#readme
+LIZARD_KOFI_URL=https://ko-fi.com/yourname
