@@ -26,9 +26,9 @@ def register_events(
         print(f"Bot is in {len(bot.guilds)} guild(s)")
         print("Bot is ready to receive commands!")
 
-        activity = discord.CustomActivity(name="Lizard")
+        activity = discord.CustomActivity(name=settings.activity_name)
         await bot.change_presence(activity=activity)
-        print("Bot status set to: Lizard")
+        print(f"Bot status set to: {settings.activity_name}")
 
         if not discord.opus.is_loaded():
             print("WARNING: Opus library not loaded. Voice may not work properly.")
@@ -56,7 +56,7 @@ def register_events(
                 channel = bot.get_channel(default_text_id)
                 if channel and channel.permissions_for(guild.me).send_messages:
                     try:
-                        await channel.send("lizard is lerking")
+                        await channel.send(settings.messages.get("startup_message", "lizard is lerking"))
                         logger.info(
                             "Sent startup message to %s in %s", channel.name, guild.name
                         )
@@ -67,7 +67,7 @@ def register_events(
             for channel in guild.text_channels:
                 if channel.permissions_for(guild.me).send_messages:
                     try:
-                        await channel.send("lizard is lerking")
+                        await channel.send(settings.messages.get("startup_message", "lizard is lerking"))
                         logger.info(
                             "Sent startup message to %s in %s (fallback)",
                             channel.name,
@@ -82,7 +82,7 @@ def register_events(
         if message.author == bot.user:
             return
 
-        if random.random() < 0.03:
+        if random.random() < settings.lizard_reaction_probability:
             try:
                 await message.add_reaction("🦎")
             except Exception:  # pragma: no cover - Discord runtime

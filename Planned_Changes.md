@@ -29,4 +29,3 @@ Add admin only way of pausing lizard joining voice chat for a amount of time
 Add per user opt-out of kidnap feature - send lizard themed messages saying why it cant do it, (list of options again)
 
 Also add a list of text for any currently static messages
-

@@ -38,12 +38,12 @@ async def join_play_leave(channel: discord.VoiceChannel, settings: Settings) -> 
             await asyncio.sleep(1)
 
         voice_client = await channel.connect(
-            timeout=30.0, reconnect=False, self_deaf=False, self_mute=False
+            timeout=settings.connection_timeout, reconnect=False, self_deaf=False, self_mute=False
         )
         logger.info("Joined %s in %s", channel.name, channel.guild.name)
 
         await channel.guild.me.edit(mute=False, deafen=False)
-        await asyncio.sleep(1)
+        await asyncio.sleep(settings.playback_delay_seconds)
 
         if not settings.audio_file.exists():
             logger.error("Audio file not found: %s", settings.audio_file)
@@ -73,7 +73,7 @@ async def join_play_leave(channel: discord.VoiceChannel, settings: Settings) -> 
         while voice_client.is_playing():
             await asyncio.sleep(1)
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(settings.disconnect_delay_seconds)
         await voice_client.disconnect(force=True)
         logger.info("Left %s", channel.name)
 
@@ -102,12 +102,12 @@ async def execute_kidnap(
             await asyncio.sleep(1)
 
         voice_client = await victim_channel.connect(
-            timeout=30.0, reconnect=False, self_deaf=False, self_mute=False
+            timeout=settings.connection_timeout, reconnect=False, self_deaf=False, self_mute=False
         )
         logger.info("Joined %s to kidnap %s", victim_channel.name, member.display_name)
 
         await guild.me.edit(mute=False, deafen=False)
-        await asyncio.sleep(1)
+        await asyncio.sleep(settings.playback_delay_seconds)
 
         if settings.audio_file.exists():
             ffmpeg_path = settings.ffmpeg_path
@@ -130,7 +130,7 @@ async def execute_kidnap(
         logger.info("Moved %s to AFK channel", member.display_name)
 
         await guild.me.move_to(afk_channel)
-        await asyncio.sleep(1)
+        await asyncio.sleep(settings.disconnect_delay_seconds)
 
         await voice_client.disconnect(force=True)
         logger.info("Kidnap complete for %s", member.display_name)

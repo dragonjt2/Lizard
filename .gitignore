@@ -5,3 +5,6 @@ guild_configs.json
 start_lizard.bat
 start_lizard_silent.bat
 start_lizard_hidden.vbs
+*.sqlite3
+__pycache__
+*/__pycache__
